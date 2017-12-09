@@ -46,7 +46,7 @@ get_conversation_list<-function(aid,apiKey,limit=200){
     content("text",encoding = "UTF-8")%>%fromJSON(flatten=TRUE,simplifyDataFrame = TRUE)%>%
     .$total
   
-  
+  #register cores on the machine for the parallel loop
   registerDoParallel(cores=detectCores()-1)
   
   data<-foreach(i=seq(0,size,by = limit), .combine=bind_rows,.multicombine = TRUE, .init=NULL) %dopar% {
@@ -67,7 +67,7 @@ get_conversation_list<-function(aid,apiKey,limit=200){
   
 }
 
-#define the combine function this function at the end of the parallell cycle glues togheter the result chunks
+#define the combine function this function at the end of the parallell cycle that glues togheter the result chunks
 combine<-function(...){
   data<-list(...)
   a<-map(names(data[[1]]),function(x){rbindlist(map(data,x)) })
@@ -75,15 +75,11 @@ combine<-function(...){
   a
 }
 
-
-#This function takes returns a single conversation as a list of dataframes
-
-
-#This function takes returns a single conversation as a list of dataframes
+#This function returns a single conversation as a list of dataframes
 
 get_conversations<-function(cids,aid,apiKey){
   
-  #use do parallel package do loop through the api and generate a list of dataframes
+  #use the do parallel package do loop through the api and generate a list of dataframes on multiple cores
   
   registerDoParallel(cores=detectCores()-1)
   
@@ -133,7 +129,7 @@ get_conversations<-function(cids,aid,apiKey){
 # }
 
 ###this functions loops through the ids and retrieves messages, paths, and visitors and writes them directly to the file so I do not run out of memory
-#I do this in chunkd by 200 since it seems there is a stop limit on the api
+#I do this in chunks by 200 since it seems there is a stop limit on the api
 
 write_conversations<-function(ids,aid,apiKey,chunk_size=200){
   
