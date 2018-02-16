@@ -34,6 +34,10 @@ aid<-GET("https://api.smartsupp.com/accounts",add_headers("apiKey"=apiKey))%>%
   map_chr("id")
 
 
+
+# Get Converstationv list ------------------------------------------------------
+
+
 #This function loops through all conversations and retrieve their summary
 
 get_conversation_list<-function(aid,apiKey,limit=200){
@@ -46,7 +50,7 @@ get_conversation_list<-function(aid,apiKey,limit=200){
     content("text",encoding = "UTF-8")%>%fromJSON(flatten=TRUE,simplifyDataFrame = TRUE)%>%
     .$total
   
-  #register cores on the machine for the parallel loop
+  
   registerDoParallel(cores=detectCores()-1)
   
   data<-foreach(i=seq(0,size,by = limit), .combine=bind_rows,.multicombine = TRUE, .init=NULL) %dopar% {
@@ -67,19 +71,23 @@ get_conversation_list<-function(aid,apiKey,limit=200){
   
 }
 
-#define the combine function this function at the end of the parallell cycle that glues togheter the result chunks
+
+# Get single conversation -------------------------------------------------
+
+
+#define the combine function this function at the end of the parallell cycle glues togheter the result chunks
 combine<-function(...){
   data<-list(...)
-  a<-map(names(data[[1]]),function(x){rbindlist(map(data,x)) })
+  a<-map(names(data[[1]]),function(x){rbindlist(map(data,x),fill=TRUE) })
   names(a)<-names(data[[1]])    
   a
 }
 
-#This function returns a single conversation as a list of dataframes
+#This function takes returns a single conversation as a list of dataframes
 
 get_conversations<-function(cids,aid,apiKey){
   
-  #use the do parallel package do loop through the api and generate a list of dataframes on multiple cores
+  #use do parallel package do loop through the api and generate a list of dataframes
   
   registerDoParallel(cores=detectCores()-1)
   
@@ -90,7 +98,7 @@ get_conversations<-function(cids,aid,apiKey){
     r <-RETRY("GET",url=endpoint,config=add_headers("apiKey"=apiKey))
     
     apires<-content(r,"text",encoding = "UTF-8")%>%fromJSON(flatten=TRUE)
-    
+  
     if(r$status_code != 200) stop(paste0("Error calling cid: ",cid,", HTTP status ",r$status_code," API response: ", apires$error))
     
     paths<-mutate(apires$paths,conversation_id=i,num=row_number())
@@ -104,58 +112,30 @@ get_conversations<-function(cids,aid,apiKey){
   
 }
 
-## Same function but just retrieves one
 
-# get_conversation<-function(cid,aid,apiKey){
-#   
-#   endpoint<-paste0("https://api.smartsupp.com/accounts/",aid,"/conversations/",cid,"/get")
-#   
-#   r <-RETRY("GET",url=endpoint,config=add_headers("apiKey"=apiKey))
-#   
-#   apires<-content(r,"text",encoding = "UTF-8")%>%fromJSON(flatten=TRUE)
-#   
-#   if(r$status_code != 200) stop(paste0("Error calling cid: ",cid,", HTTP status ",r$status_code," API response: ", apires$error))
-#   
-#   paths<-mutate(apires$paths,conversation_id=cid,num=row_number())
-#   
-#   messages<-mutate(apires$messages,conversation_id=cid,num=row_number())
-#   
-#   visitors<-mutate(as_data_frame(t(unlist(apires$visitor))),conversation_id=cid) 
-#   
-#   fwrite(paths,"out/tables/paths.csv", append=TRUE)
-#   fwrite(messages,"out/tables/messages.csv", append=TRUE)
-#   fwrite(visitors,"out/tables/visitors.csv", append=TRUE)
-#   
-# }
+# Write converstations ----------------------------------------------------
 
 ###this functions loops through the ids and retrieves messages, paths, and visitors and writes them directly to the file so I do not run out of memory
-#I do this in chunks by 200 since it seems there is a stop limit on the api
+#I do this in chunkd by 200 since it seems there is a stop limit on the api
 
 write_conversations<-function(ids,aid,apiKey,chunk_size=200){
   
   div<-seq(chunk_size,length(ids),chunk_size)
-  res<-c()
-  res<-map(seq(1:length(div)), function(i){ 
+  
+  walk(seq(1:length(div)), function(i){ 
     res<-get_conversations(ids[seq(chunk_size*(i-1)+1,chunk_size*(i))],aid,apiKey) 
     
     fwrite(res$paths,"out/tables/paths.csv", append=TRUE)
     fwrite(res$messages,"out/tables/messages.csv", append=TRUE)
     fwrite(res$visitors,"out/tables/visitors.csv", append=TRUE)
     
-    i
-    
   } )
-  
-  res
   
 }
 
-#Same function without parallelization
 
-# write_conversation<-function(ids,aid,apiKey){
-#   
-#   res<-map(ids, function(x){get_conversation(x,aid,apiKey); })
-# }
+# Iteration over API ------------------------------------------------------
+
 
 #Process the conversations get their ids and remove them from memory
 
@@ -175,17 +155,5 @@ rm(conversations)
 
 system.time(write_conversations(ids,aid,apiKey,chunk_size=400)) 
 
-write('Merging Geneea File', stdout())
-
-messages<-read_csv("out/tables/messages.csv")
-
-geneea_messages<-messages%>%
-  filter(type!="system" & from !="system")%>%
-  select(conversation_id,content,sentAt)%>%
-  mutate(sentAt=lubridate::as_date(sentAt))%>%
-  group_by(conversation_id)%>%
-  summarize(date=min(sentAt),content=paste0(content, collapse = " \n "))
-
-write_csv(geneea_messages,"out/tables/geneea.csv")
-
 write('Done', stdout())
+
